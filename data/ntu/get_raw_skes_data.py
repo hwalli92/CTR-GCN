@@ -6,6 +6,8 @@ import numpy as np
 import pickle
 import logging
 
+#joint_map = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+joint_map = [3, 2, 1, 0, 20, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18]
 
 def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logger):
     """
@@ -45,8 +47,8 @@ def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logge
             continue
 
         valid_frames += 1
-        joints = np.zeros((num_bodies, 25, 3), dtype=np.float32)
-        colors = np.zeros((num_bodies, 25, 2), dtype=np.float32)
+        joints = np.zeros((num_bodies, len(joint_map), 3), dtype=np.float32)
+        colors = np.zeros((num_bodies, len(joint_map), 2), dtype=np.float32)
 
         for b in range(num_bodies):
             bodyID = str_data[current_line].strip('\r\n').split()[0]
@@ -55,9 +57,10 @@ def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logge
             current_line += 1
 
             for j in range(num_joints):
-                temp_str = str_data[current_line].strip('\r\n').split()
-                joints[b, j, :] = np.array(temp_str[:3], dtype=np.float32)
-                colors[b, j, :] = np.array(temp_str[5:7], dtype=np.float32)
+                if j in joint_map:
+                    temp_str = str_data[current_line].strip('\r\n').split()
+                    joints[b, joint_map.index(j), :] = np.array(temp_str[:3], dtype=np.float32)
+                    colors[b, joint_map.index(j), :] = np.array(temp_str[5:7], dtype=np.float32)
                 current_line += 1
 
             if bodyID not in bodies_data:  # Add a new body's data
@@ -134,13 +137,13 @@ def get_raw_skes_data():
 if __name__ == '__main__':
     save_path = './'
 
-    skes_path = '../nturgbd_raw/nturgb+d_skeletons/'
+    skes_path = '/media/ntfs-data/datasets/ntu/nturgb+d_60_skeletons/'
     stat_path = osp.join(save_path, 'statistics')
     if not osp.exists('./raw_data'):
         os.makedirs('./raw_data')
 
-    skes_name_file = osp.join(stat_path, 'skes_available_name.txt')
-    save_data_pkl = osp.join(save_path, 'raw_data', 'raw_skes_data.pkl')
+    skes_name_file = osp.join(stat_path, 'skes_available_name2.txt')
+    save_data_pkl = osp.join(save_path, 'raw_data', 'raw_skes_data_nt.pkl')
     frames_drop_pkl = osp.join(save_path, 'raw_data', 'frames_drop_skes.pkl')
 
     frames_drop_logger = logging.getLogger('frames_drop')

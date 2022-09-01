@@ -7,7 +7,7 @@ import pickle
 import logging
 
 root_path = './'
-raw_data_file = osp.join(root_path, 'raw_data', 'raw_skes_data.pkl')
+raw_data_file = osp.join(root_path, 'raw_data', 'raw_skes_data_nt.pkl')
 save_path = osp.join(root_path, 'denoised_data')
 
 if not osp.exists(save_path):
@@ -105,7 +105,7 @@ def get_valid_frames_by_spread(points):
     return valid_frames
 
 
-def denoising_by_spread(ske_name, bodies_data):
+def denoising_by_spread(ske_name, bodies_data, num_joints):
     """
     Denoising data based on the spread of Y value and X value.
     Filter out the bodyID which the ratio of noisy frames is higher than the predefined
@@ -121,7 +121,7 @@ def denoising_by_spread(ske_name, bodies_data):
     for (bodyID, body_data) in new_bodies_data.items():
         if len(bodies_data) == 1:
             break
-        valid_frames = get_valid_frames_by_spread(body_data['joints'].reshape(-1, 25, 3))
+        valid_frames = get_valid_frames_by_spread(body_data['joints'].reshape(-1, num_joints, 3))
         num_frames = len(body_data['interval'])
         num_noise = num_frames - len(valid_frames)
         if num_noise == 0:
@@ -135,7 +135,7 @@ def denoising_by_spread(ske_name, bodies_data):
             noise_info += 'Filter out: %s (spread rate >= %.2f).\n' % (bodyID, noise_spr_thres2)
             noise_spr_logger.info('%s\t%s\t%.6f\t%.6f' % (ske_name, bodyID, motion, ratio))
         else:  # Update motion
-            joints = body_data['joints'].reshape(-1, 25, 3)[valid_frames]
+            joints = body_data['joints'].reshape(-1, num_joints, 3)[valid_frames]
             body_data['motion'] = min(motion, np.sum(np.var(joints.reshape(-1, 3), axis=0)))
             noise_info += '%s: motion %.6f -> %.6f\n' % (bodyID, motion, body_data['motion'])
             # TODO: Consider removing noisy frames for each bodyID
@@ -171,7 +171,7 @@ def denoising_by_motion(ske_name, bodies_data, bodies_motion):
     return denoised_bodies_data, noise_info
 
 
-def denoising_bodies_data(bodies_data):
+def denoising_bodies_data(bodies_data, num_joints):
     """
     Denoising data based on some heuristic methods, not necessarily correct for all samples.
 
@@ -188,7 +188,7 @@ def denoising_bodies_data(bodies_data):
         return bodies_data.items(), noise_info_len
 
     # Step 2: Denoising based on spread.
-    bodies_data, noise_info_spr, denoised_by_spr = denoising_by_spread(ske_name, bodies_data)
+    bodies_data, noise_info_spr, denoised_by_spr = denoising_by_spread(ske_name, bodies_data, num_joints)
 
     if len(bodies_data) == 1:
         return bodies_data.items(), noise_info_len + noise_info_spr
@@ -220,16 +220,16 @@ def denoising_bodies_data(bodies_data):
     # return bodies_data, noise_info
 
 
-def get_one_actor_points(body_data, num_frames):
+def get_one_actor_points(body_data, num_frames, num_joints):
     """
     Get joints and colors for only one actor.
     For joints, each frame contains 75 X-Y-Z coordinates.
     For colors, each frame contains 25 x 2 (X, Y) coordinates.
     """
-    joints = np.zeros((num_frames, 75), dtype=np.float32)
-    colors = np.ones((num_frames, 1, 25, 2), dtype=np.float32) * np.nan
+    joints = np.zeros((num_frames, num_joints*3), dtype=np.float32)
+    colors = np.ones((num_frames, 1, num_joints, 2), dtype=np.float32) * np.nan
     start, end = body_data['interval'][0], body_data['interval'][-1]
-    joints[start:end + 1] = body_data['joints'].reshape(-1, 75)
+    joints[start:end + 1] = body_data['joints'].reshape(-1, num_joints*3)
     colors[start:end + 1, 0] = body_data['colors']
 
     return joints, colors
@@ -287,7 +287,7 @@ def get_bodies_info(bodies_data):
     return bodies_info + '\n'
 
 
-def get_two_actors_points(bodies_data):
+def get_two_actors_points(bodies_data, num_joints):
     """
     Get the first and second actor's joints positions and colors locations.
 
@@ -308,7 +308,7 @@ def get_two_actors_points(bodies_data):
     num_frames = bodies_data['num_frames']
     bodies_info = get_bodies_info(bodies_data['data'])
 
-    bodies_data, noise_info = denoising_bodies_data(bodies_data)  # Denoising data
+    bodies_data, noise_info = denoising_bodies_data(bodies_data, num_joints)  # Denoising data
     bodies_info += noise_info
 
     bodies_data = list(bodies_data)
@@ -317,18 +317,18 @@ def get_two_actors_points(bodies_data):
             fail_logger_2.info(ske_name)
 
         bodyID, body_data = bodies_data[0]
-        joints, colors = get_one_actor_points(body_data, num_frames)
+        joints, colors = get_one_actor_points(body_data, num_frames, num_joints)
         bodies_info += 'Main actor: %s' % bodyID
     else:
         if label < 50:  # DEBUG: Denoising failed for one-subject action
             fail_logger_1.info(ske_name)
 
-        joints = np.zeros((num_frames, 150), dtype=np.float32)
-        colors = np.ones((num_frames, 2, 25, 2), dtype=np.float32) * np.nan
+        joints = np.zeros((num_frames, num_joints*6), dtype=np.float32)
+        colors = np.ones((num_frames, 2, num_joints, 2), dtype=np.float32) * np.nan
 
         bodyID, actor1 = bodies_data[0]  # the 1st actor with largest motion
         start1, end1 = actor1['interval'][0], actor1['interval'][-1]
-        joints[start1:end1 + 1, :75] = actor1['joints'].reshape(-1, 75)
+        joints[start1:end1 + 1, :num_joints*3] = actor1['joints'].reshape(-1, num_joints*3)
         colors[start1:end1 + 1, 0] = actor1['colors']
         actor1_info = '{:^17}\t{}\t{:^8}\n'.format('Actor1', 'Interval', 'Motion') + \
                       '{}\t{:^8}\t{:f}\n'.format(bodyID, str([start1, end1]), actor1['motion'])
@@ -341,14 +341,14 @@ def get_two_actors_points(bodies_data):
             bodyID, actor = bodies_data[0]
             start, end = actor['interval'][0], actor['interval'][-1]
             if min(end1, end) - max(start1, start) <= 0:  # no overlap with actor1
-                joints[start:end + 1, :75] = actor['joints'].reshape(-1, 75)
+                joints[start:end + 1, :num_joints*3] = actor['joints'].reshape(-1, num_joints*3)
                 colors[start:end + 1, 0] = actor['colors']
                 actor1_info += '{}\t{:^8}\t{:f}\n'.format(bodyID, str([start, end]), actor['motion'])
                 # Update the interval of actor1
                 start1 = min(start, start1)
                 end1 = max(end, end1)
             elif min(end2, end) - max(start2, start) <= 0:  # no overlap with actor2
-                joints[start:end + 1, 75:] = actor['joints'].reshape(-1, 75)
+                joints[start:end + 1, num_joints*3:] = actor['joints'].reshape(-1, num_joints*3)
                 colors[start:end + 1, 1] = actor['colors']
                 actor2_info += '{}\t{:^8}\t{:f}\n'.format(bodyID, str([start, end]), actor['motion'])
                 # Update the interval of actor2
@@ -396,13 +396,14 @@ def get_raw_denoised_data():
         ske_name = bodies_data['name']
         print('Processing %s' % ske_name)
         num_bodies = len(bodies_data['data'])
+        num_joints = 19
 
         if num_bodies == 1:  # only 1 actor
             num_frames = bodies_data['num_frames']
             body_data = list(bodies_data['data'].values())[0]
-            joints, colors = get_one_actor_points(body_data, num_frames)
+            joints, colors = get_one_actor_points(body_data, num_frames, num_joints)
         else:  # more than 1 actor, select two main actors
-            joints, colors = get_two_actors_points(bodies_data)
+            joints, colors = get_two_actors_points(bodies_data, num_joints)
             # Remove missing frames
             joints, colors = remove_missing_frames(ske_name, joints, colors)
             num_frames = joints.shape[0]  # Update
@@ -417,11 +418,11 @@ def get_raw_denoised_data():
                   (100.0 * (idx + 1) / num_skes, idx + 1, num_skes) + \
                   'Missing count: %d' % missing_count)
 
-    raw_skes_joints_pkl = osp.join(save_path, 'raw_denoised_joints.pkl')
+    raw_skes_joints_pkl = osp.join(save_path, 'raw_denoised_joints_nt.pkl')
     with open(raw_skes_joints_pkl, 'wb') as f:
         pickle.dump(raw_denoised_joints, f, pickle.HIGHEST_PROTOCOL)
 
-    raw_skes_colors_pkl = osp.join(save_path, 'raw_denoised_colors.pkl')
+    raw_skes_colors_pkl = osp.join(save_path, 'raw_denoised_colors_nt.pkl')
     with open(raw_skes_colors_pkl, 'wb') as f:
         pickle.dump(raw_denoised_colors, f, pickle.HIGHEST_PROTOCOL)
 

@@ -18,7 +18,7 @@ label_file = osp.join(stat_path, 'label.txt')
 skes_name_file = osp.join(stat_path, 'skes_available_name.txt')
 
 denoised_path = osp.join(root_path, 'denoised_data')
-raw_skes_joints_pkl = osp.join(denoised_path, 'raw_denoised_joints.pkl')
+raw_skes_joints_pkl = osp.join(denoised_path, 'raw_denoised_joints_nt.pkl')
 frames_file = osp.join(denoised_path, 'frames_cnt.txt')
 
 save_path = './'
@@ -41,35 +41,38 @@ def remove_nan_frames(ske_name, ske_joints, nan_logger):
 
     return ske_joints[valid_frames]
 
-def seq_translation(skes_joints):
+def seq_translation(skes_joints, num_joints):
     for idx, ske_joints in enumerate(skes_joints):
         num_frames = ske_joints.shape[0]
-        num_bodies = 1 if ske_joints.shape[1] == 75 else 2
+        num_bodies = 1 if ske_joints.shape[1] == num_joints*3 else 2
         if num_bodies == 2:
-            missing_frames_1 = np.where(ske_joints[:, :75].sum(axis=1) == 0)[0]
-            missing_frames_2 = np.where(ske_joints[:, 75:].sum(axis=1) == 0)[0]
+            missing_frames_1 = np.where(ske_joints[:, :num_joints*3].sum(axis=1) == 0)[0]
+            missing_frames_2 = np.where(ske_joints[:, num_joints*3:].sum(axis=1) == 0)[0]
             cnt1 = len(missing_frames_1)
             cnt2 = len(missing_frames_2)
 
         i = 0  # get the "real" first frame of actor1
         while i < num_frames:
-            if np.any(ske_joints[i, :75] != 0):
+            if np.any(ske_joints[i, :num_joints*3] != 0):
                 break
             i += 1
 
-        origin = np.copy(ske_joints[i, 3:6])  # new origin: joint-2
+        if num_joints == 19:
+            origin = np.copy(ske_joints[i, 6:9])  # new origin: joint-2
+        else:
+            origin = np.copy(ske_joints[i, 3:6])  # new origin: joint-2
 
         for f in range(num_frames):
             if num_bodies == 1:
-                ske_joints[f] -= np.tile(origin, 25)
+                ske_joints[f] -= np.tile(origin, num_joints)
             else:  # for 2 actors
-                ske_joints[f] -= np.tile(origin, 50)
+                ske_joints[f] -= np.tile(origin, num_joints*2)
 
         if (num_bodies == 2) and (cnt1 > 0):
-            ske_joints[missing_frames_1, :75] = np.zeros((cnt1, 75), dtype=np.float32)
+            ske_joints[missing_frames_1, :num_joints*3] = np.zeros((cnt1, num_joints*3), dtype=np.float32)
 
         if (num_bodies == 2) and (cnt2 > 0):
-            ske_joints[missing_frames_2, 75:] = np.zeros((cnt2, 75), dtype=np.float32)
+            ske_joints[missing_frames_2, num_joints*3:] = np.zeros((cnt2, num_joints*3), dtype=np.float32)
 
         skes_joints[idx] = ske_joints  # Update
 
@@ -106,18 +109,18 @@ def frame_translation(skes_joints, skes_name, frames_cnt):
     return skes_joints, frames_cnt
 
 
-def align_frames(skes_joints, frames_cnt):
+def align_frames(skes_joints, frames_cnt, num_joints):
     """
     Align all sequences with the same frame length.
 
     """
     num_skes = len(skes_joints)
     max_num_frames = frames_cnt.max()  # 300
-    aligned_skes_joints = np.zeros((num_skes, max_num_frames, 150), dtype=np.float32)
+    aligned_skes_joints = np.zeros((num_skes, max_num_frames, num_joints*6), dtype=np.float32)
 
     for idx, ske_joints in enumerate(skes_joints):
         num_frames = ske_joints.shape[0]
-        num_bodies = 1 if ske_joints.shape[1] == 75 else 2
+        num_bodies = 1 if ske_joints.shape[1] == num_joints*3 else 2
         if num_bodies == 1:
             aligned_skes_joints[idx, :num_frames] = np.hstack((ske_joints,
                                                                np.zeros_like(ske_joints)))
@@ -168,7 +171,7 @@ def split_dataset(skes_joints, label, performer, camera, evaluation, save_path):
     test_x = skes_joints[test_indices]
     test_y = one_hot_vector(test_labels)
 
-    save_name = 'NTU60_%s.npz' % evaluation
+    save_name = 'NTU60_%s_nt.npz' % evaluation
     np.savez(save_name, x_train=train_x, y_train=train_y, x_test=test_x, y_test=test_y)
 
     # Save data into a .h5 file
@@ -234,9 +237,11 @@ if __name__ == '__main__':
     with open(raw_skes_joints_pkl, 'rb') as fr:
         skes_joints = pickle.load(fr)  # a list
 
-    skes_joints = seq_translation(skes_joints)
-
-    skes_joints = align_frames(skes_joints, frames_cnt)  # aligned to the same frame length
+    num_joints = 19
+    skes_joints = seq_translation(skes_joints, num_joints)
+    print(skes_joints[0].shape)
+    skes_joints = align_frames(skes_joints, frames_cnt, num_joints)  # aligned to the same frame length
+    print(skes_joints[0].shape)
 
     evaluations = ['CS', 'CV']
     for evaluation in evaluations:
