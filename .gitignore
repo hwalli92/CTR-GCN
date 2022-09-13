@@ -1,4 +1,10 @@
 */__pycache__
+*/*/__pycache__
 
 *.npz
 *.pkl
+
+CTRGCN.egg-info
+
+torchlight/build
+torchlight/dist
